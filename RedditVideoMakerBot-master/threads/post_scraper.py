@@ -41,6 +41,8 @@ def get_threads_post(post_url: str = None) -> Dict:
         context = browser.new_context(
             viewport=ViewportSize(width=W, height=H),
             device_scale_factor=2,
+            locale="vi-VN",
+            timezone_id="Asia/Ho_Chi_Minh",
             user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
             color_scheme="dark" if settings.config["settings"]["theme"] == "dark" else "light"
         )
@@ -54,6 +56,20 @@ def get_threads_post(post_url: str = None) -> Dict:
             # === 1. Lấy tiêu đề + chụp ảnh bài viết gốc ===
             main_post_element = page.locator("div[data-pressable-container]").first
             main_post_element.wait_for(timeout=10000)
+            
+            # Ẩn các đoạn text có link (shopee, http, v.v) trước khi chụp ảnh
+            main_post_element.evaluate("""(el) => {
+                const links = el.querySelectorAll('a');
+                links.forEach(a => {
+                    const text = a.innerText.toLowerCase();
+                    if (text.includes('shope') || text.includes('http') || text.includes('.vn') || text.includes('.com') || text.includes('link:')) {
+                        a.style.display = 'none';
+                    }
+                });
+                
+                // Đôi khi link nằm dạng text thường không có thẻ a, ta đổi màu hoặc ẩn text đó (hơi khó nếu là text node chung)
+                // Tạm thời ẩn các thẻ a là hiệu quả nhất vì Threads auto biến link thành thẻ a.
+            }""")
             
             # Chụp ảnh bài viết gốc
             title_path = f"assets/temp/{thread_id}/png/title.png"
@@ -105,20 +121,40 @@ def get_threads_post(post_url: str = None) -> Dict:
                         reply_hash = hash(full_reply)
                         if reply_hash not in processed_replies and len(full_reply) > 10:
                             processed_replies.add(reply_hash)
+                            
+                            # Kiểm tra ngay lập tức xem TOÀN BỘ bình luận có chứa từ khóa tiếp thị / link không
+                            text_lower = " ".join(content_texts).lower()
+                            if any(kw in text_lower for kw in ['shopee', 'shope.ee', 'http://', 'https://', 'www.', '.vn/', 'lazada', 'tiktok.com']):
+                                continue
+                                
                             if min_len <= len(full_reply) <= max_len:
                                 sanitized = sanitize_text(full_reply)
                                 if sanitized:
-                                    # Cuộn đến bình luận và chụp ảnh ngay lập tức
-                                    container.scroll_into_view_if_needed()
-                                    page.wait_for_timeout(500)
-                                    comment_path = f"assets/temp/{thread_id}/png/comment_{reply_count}.png"
-                                    container.screenshot(path=comment_path)
-                                    
                                     content["comments"].append({
                                         "comment_body": full_reply,
                                         "comment_url": post_url, 
                                         "comment_id": f"reply_{reply_count}"
                                     })
+                                    
+                                    # Cuộn đến bình luận 
+                                    container.scroll_into_view_if_needed()
+                                    page.wait_for_timeout(500)
+                                    
+                                    # Tự động click vào các nút Spoiler/Bị ẩn nấp bên trong đoạn text
+                                    try:
+                                        container.evaluate("""(el) => {
+                                            const spans = el.querySelectorAll('span[dir="auto"]');
+                                            spans.forEach(span => {
+                                                const btns = span.querySelectorAll('div[role="button"]');
+                                                btns.forEach(b => b.click());
+                                            });
+                                        }""")
+                                        page.wait_for_timeout(500)  # Chờ hiệu ứng mờ biến mất
+                                    except:
+                                        pass
+
+                                    comment_path = f"assets/temp/{thread_id}/png/comment_{reply_count}.png"
+                                    container.screenshot(path=comment_path)
                                     print_substep(f"Đã lấy + chụp bình luận {reply_count}: {full_reply[:40]}...")
                                     reply_count += 1
                     except Exception:

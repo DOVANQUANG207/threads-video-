@@ -91,10 +91,16 @@ def sanitize_text(text: str) -> str:
     result = re.sub(regex_expr, " ", result)
     result = result.replace("+", "plus").replace("&", "and")
 
-    # Loại bỏ các từ thừa của giao diện Threads
-    ui_artifacts = ["Translate...", "Translate", "Xem bản dịch", "Xem dịch", "Xem thêm"]
+    # Loại bỏ các từ thừa của giao diện Threads và các link quảng cáo/shopee
+    ui_artifacts = [
+        "Translate...", "Translate", "Xem bản dịch", "Xem dịch", "Xem thêm",
+        "shopee.vn", "shope.ee", "Shopee", "shopee"
+    ]
     for artifact in ui_artifacts:
-        result = result.replace(artifact, "")
+        # Xoá cả những domain có kèm theo ký tự phía sau
+        if artifact in result or artifact.lower() in result.lower():
+            regex_artifact = re.compile(re.escape(artifact) + r'\S*', re.IGNORECASE)
+            result = re.sub(regex_artifact, "", result)
 
     # emoji removal if the setting is enabled
     if settings.config["settings"]["tts"]["no_emojis"]:
