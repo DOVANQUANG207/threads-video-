@@ -68,6 +68,7 @@ class ProgressFfmpeg(threading.Thread):
 
 
 def name_normalize(name: str) -> str:
+    name = re.sub(r'[\r\n]+', " ", name)
     name = re.sub(r'[?\\"%*:|<>]', "", name)
     name = re.sub(r"( [w,W]\s?\/\s?[o,O,0])", r" without", name)
     name = re.sub(r"( [w,W]\s?\/)", r" with", name)
@@ -82,12 +83,17 @@ def prepare_background(post_id: str, W: int, H: int) -> str:
     output = (
         ffmpeg.input(f"assets/temp/{post_id}/background.mp4")
         .filter("crop", f"ih*({W}/{H})", "ih")
+        .filter("scale", W, H, flags="lanczos")
         .output(
             output_path,
             an=None,
             **{
                 "c:v": "h264_nvenc",
-                "b:v": "20M",
+                "preset": "p7",
+                "tune": "hq",
+                "rc": "vbr",
+                "cq": 19,
+                "b:v": "30M",
                 "b:a": "192k",
                 "threads": multiprocessing.cpu_count(),
             },
@@ -258,7 +264,7 @@ def make_final_video(
 
     console.log(f"[bold green] Video Will Be: {length} Seconds Long")
 
-    screenshot_width = int((W * 45) // 100)
+    screenshot_width = int((W * 85) // 100)
     audio = ffmpeg.input(f"assets/temp/{post_id}/audio.mp3")
     final_audio = merge_background_audio(audio, post_id)
 
@@ -412,7 +418,6 @@ def make_final_video(
         fontcolor="White",
         fontfile=os.path.join("fonts", "Roboto-Regular.ttf"),
     )
-    background_clip = background_clip.filter("scale", W, H)
     print_step("Rendering the video 🎥")
     from tqdm import tqdm
 
@@ -437,7 +442,11 @@ def make_final_video(
                 f="mp4",
                 **{
                     "c:v": "h264_nvenc",
-                    "b:v": "20M",
+                    "preset": "p7",
+                    "tune": "hq",
+                    "rc": "vbr",
+                    "cq": 19,
+                    "b:v": "30M",
                     "b:a": "192k",
                     "threads": multiprocessing.cpu_count(),
                 },
@@ -467,7 +476,11 @@ def make_final_video(
                     f="mp4",
                     **{
                         "c:v": "h264_nvenc",
-                        "b:v": "20M",
+                        "preset": "p7",
+                        "tune": "hq",
+                        "rc": "vbr",
+                        "cq": 19,
+                        "b:v": "30M",
                         "b:a": "192k",
                         "threads": multiprocessing.cpu_count(),
                     },

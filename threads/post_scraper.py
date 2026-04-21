@@ -50,40 +50,73 @@ def get_threads_post(post_url: str = None) -> Dict:
         # Chờ nội dung tải lên
         page.wait_for_timeout(5000)
 
+        # Thêm CSS để TẮT HOÀN TOÀN hiệu ứng làm mờ và ẩn popup đăng nhập (bất chấp React)
+        try:
+            page.add_style_tag(content="""
+                * {
+                    filter: none !important;
+                    backdrop-filter: none !important;
+                }
+                div[role="dialog"], #login-modal, [data-testid="login-modal"] {
+                    display: none !important;
+                    opacity: 0 !important;
+                    visibility: hidden !important;
+                    pointer-events: none !important;
+                }
+                body {
+                    overflow: auto !important;
+                    pointer-events: auto !important;
+                }
+            """)
+        except:
+            pass
+
         # --- Xóa popup đăng nhập và lớp phủ đen mờ bằng JavaScript ---
         try:
             page.evaluate('''() => {
-                // Khôi phục khả năng cuộn trang bị khóa bởi popup
+                // Khôi phục khả năng cuộn trang và tương tác
                 document.body.style.overflow = 'auto';
+                document.body.style.pointerEvents = 'auto';
                 
-                // Tìm và xóa các lớp phủ (overlay) và popup (fixed position + z-index cao)
+                // Xóa tất cả các dialog/modal (thường là popup đăng nhập)
+                const dialogs = document.querySelectorAll('div[role="dialog"]');
+                for (let d of dialogs) d.remove();
+                
+                // Tìm và xóa các lớp phủ, banner và hiệu ứng làm mờ
                 const allElements = document.querySelectorAll('*');
                 for (let el of allElements) {
                     const style = window.getComputedStyle(el);
-                    if (style.position === 'fixed' && parseInt(style.zIndex) > 50) {
+                    
+                    // Xóa các phần tử cố định đè lên màn hình (banner đăng nhập)
+                    if ((style.position === 'fixed' || style.position === 'sticky') && parseInt(style.zIndex) > 10) {
                         el.remove();
+                        continue;
+                    }
+                    
+                    // Loại bỏ hiệu ứng làm mờ (blur)
+                    if (style.filter.includes('blur') || style.backdropFilter.includes('blur')) {
+                        el.style.filter = 'none';
+                        el.style.backdropFilter = 'none';
                     }
                 }
             }''')
-            print_substep("Đã dọn dẹp các lớp phủ đăng nhập.")
+            print_substep("Đã dọn dẹp các lớp phủ đăng nhập và làm mờ.")
             page.wait_for_timeout(1000)
         except Exception as e:
             print_substep(f"Không thể chạy JS dọn dẹp popup: {e}")
 
         try:
-            # === 1. Lấy bài viết gốc (Topic) ===
-            # Thử nhiều loại selector khác nhau để tăng độ chính xác
-            selectors = ["article", "div[data-pressable-container]"]
+            core_el = page.locator('div[data-pressable-container="true"]').first
             main_post_element = None
-            
-            for selector in selectors:
-                el = page.locator(selector).first
-                if el.count() > 0:
-                    el.scroll_into_view_if_needed()
-                    page.wait_for_timeout(1000)
-                    if el.is_visible():
-                        main_post_element = el
-                        break
+            if core_el.count() > 0:
+                core_el.scroll_into_view_if_needed()
+                page.wait_for_timeout(1000)
+                # Row container is usually the grandparent
+                row_el = core_el.locator("xpath=../..")
+                if row_el.count() > 0 and row_el.is_visible():
+                    main_post_element = row_el
+                elif core_el.is_visible():
+                    main_post_element = core_el
             
             if main_post_element:
                 # Chụp ảnh bài viết gốc
@@ -92,15 +125,19 @@ def get_threads_post(post_url: str = None) -> Dict:
                 print_substep("Đã chụp ảnh bài đăng chính.")
                 
                 # Lấy tiêu đề từ text
-                full_text = main_post_element.inner_text()
-            lines = [line.strip() for line in full_text.split("\n") if line.strip()]
-            meaningful_lines = [l for l in lines if len(l) > 10]
-            if meaningful_lines:
-                content["thread_title"] = max(meaningful_lines, key=len)
-            else:
                 texts = main_post_element.locator('span[dir="auto"]').all_text_contents()
-                combined = " ".join([t for t in texts if len(t) > 3])
-                content["thread_title"] = combined if combined else ""
+                content_texts = [t.strip() for t in texts if len(t.strip()) > 8]
+                if not content_texts:
+                    texts = main_post_element.locator('div[dir="auto"]').all_text_contents()
+                    content_texts = [t.strip() for t in texts if len(t.strip()) > 8]
+                
+                # Loại bỏ username nếu nó là phần tử đầu tiên
+                if content_texts and " " not in content_texts[0] and len(content_texts[0]) <= 20:
+                    content_texts = content_texts[1:]
+                    
+                content["thread_title"] = "\n".join(content_texts) if content_texts else ""
+            else:
+                content["thread_title"] = ""
             
             if not content["thread_title"]:
                 content["thread_title"] = "Threads Story " + thread_id
@@ -137,14 +174,30 @@ def get_threads_post(post_url: str = None) -> Dict:
 
                         reply_texts = container.locator('span[dir="auto"]').all_text_contents()
                         
-                        # Lấy phần nội dung bình luận thực sự:
-                        # Tên người dùng thường là span ngắn đứng đầu.
-                        # Nội dung bình luận là span DÀI NHẤT trong container.
-                        content_texts = [t.strip() for t in reply_texts if len(t.strip()) > 10]
+                        content_texts = [t.strip() for t in reply_texts if len(t.strip()) > 8]
                         if not content_texts:
                             continue
-                        # Dùng span dài nhất làm nội dung để TTS đọc
-                        full_reply = max(content_texts, key=len)
+                            
+                        # Loại bỏ username nếu nó bị lẫn vào (thường là từ đầu tiên không có khoảng trắng)
+                        if content_texts and " " not in content_texts[0] and len(content_texts[0]) <= 20:
+                            content_texts = content_texts[1:]
+                            
+                        if not content_texts:
+                            continue
+
+                        # Gộp TẤT CẢ các dòng văn bản lại để TTS đọc đầy đủ (không bị sót dòng)
+                        full_reply = "\n".join(content_texts)
+                        
+                        # Bộ lọc spam: Loại bỏ bình luận shopee, quảng cáo, mua bán
+                        spam_keywords = [
+                            "shopee", "lazada", "tiktok shop", "giỏ hàng", 
+                            "link bio", "link ở bio", "link dưới", "sản phẩm", 
+                            "mua ngay", "đặt hàng", "inbox", "ib cho", "pass lại",
+                            "mua ở đâu", "mua hàng", "bán hàng", "mua đi", "chốt đơn"
+                        ]
+                        if any(kw in full_reply.lower() for kw in spam_keywords):
+                            print_substep(f"Bỏ qua bình luận quảng cáo/bán hàng: {full_reply[:30]}...", style="bold yellow")
+                            continue
                         
                         reply_hash = hash(full_reply)
                         if reply_hash not in processed_replies and len(full_reply) > 10:
@@ -152,9 +205,9 @@ def get_threads_post(post_url: str = None) -> Dict:
                             if min_len <= len(full_reply) <= max_len:
                                 sanitized = sanitize_text(full_reply)
                                 if sanitized:
-                                    # Cuộn đến bình luận và chụp ảnh ngay lập tức
+                                    # Cuộn đến bình luận và đợi thêm để tải nội dung/ảnh (tránh bị che/chưa load kịp)
                                     container.scroll_into_view_if_needed()
-                                    page.wait_for_timeout(500)
+                                    page.wait_for_timeout(1500)
                                     comment_path = f"assets/temp/{thread_id}/png/comment_{reply_count}.png"
                                     container.screenshot(path=comment_path)
                                     

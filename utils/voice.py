@@ -98,7 +98,11 @@ def sanitize_text(text: str) -> str:
 
     # emoji removal if the setting is enabled
     if settings.config["settings"]["tts"]["no_emojis"]:
-        result = clean(result, no_emoji=True)
+        try:
+            import emoji
+            result = emoji.replace_emoji(result, replace="")
+        except ImportError:
+            pass
 
     # remove extra whitespace
     return " ".join(result.split())

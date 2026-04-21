@@ -38,7 +38,8 @@ class GHVoice:
 
     def apply_custom_dictionary(self, text: str) -> str:
         """Apply word replacements from vietnamese_dict.json."""
-        dict_path = os.path.join(os.getcwd(), "vietnamese_dict.json")
+        base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        dict_path = os.path.join(base_dir, "vietnamese_dict.json")
         if not os.path.exists(dict_path):
             return text
 
@@ -58,7 +59,9 @@ class GHVoice:
         return text
 
     def load_voice_profile(self, name):
-        saved_voices_dir = os.path.join(os.getcwd(), "saved_voices")
+        # Sử dụng đường dẫn tuyệt đối dựa trên vị trí của file này để tránh lỗi khi người dùng chạy từ thư mục gốc
+        base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        saved_voices_dir = os.path.join(base_dir, "saved_voices")
         voice_dir = os.path.join(saved_voices_dir, name)
         audio_path = os.path.join(voice_dir, "ref.wav")
         text_path = os.path.join(voice_dir, "ref.txt")
@@ -85,8 +88,8 @@ class GHVoice:
         text = self.apply_custom_dictionary(text.strip())
         
         gen_config = GHVoiceGenerationConfig(
-            num_step=32,
-            guidance_scale=2.0,
+            num_step=64,
+            guidance_scale=3.0,
             denoise=True,
             preprocess_prompt=True,
             postprocess_output=True,

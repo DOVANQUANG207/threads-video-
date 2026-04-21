@@ -50,22 +50,27 @@ class TTSEngine:
         self.length = 0
         self.last_clip_length = last_clip_length
 
-    def add_periods(
-        self,
-    ):  # adds periods to the end of paragraphs (where people often forget to put them) so tts doesn't blend sentences
-        for comment in self.post_data["comments"]:
-            # remove links
+    def add_periods(self):
+        def process_string(text):
+            if not text: return ""
             regex_urls = r"((http|https)\:\/\/)?[a-zA-Z0-9\.\/\?\:@\-_=#]+\.([a-zA-Z]){2,6}([a-zA-Z0-9\.\&\/\?\:@\-_=#])*"
-            comment["comment_body"] = re.sub(regex_urls, " ", comment["comment_body"])
-            comment["comment_body"] = comment["comment_body"].replace("\n", ". ")
-            comment["comment_body"] = re.sub(r"\bAI\b", "A.I", comment["comment_body"])
-            comment["comment_body"] = re.sub(r"\bAGI\b", "A.G.I", comment["comment_body"])
-            if comment["comment_body"][-1] != ".":
-                comment["comment_body"] += "."
-            comment["comment_body"] = comment["comment_body"].replace(". . .", ".")
-            comment["comment_body"] = comment["comment_body"].replace(".. . ", ".")
-            comment["comment_body"] = comment["comment_body"].replace(". . ", ".")
-            comment["comment_body"] = re.sub(r'\."\.', '".', comment["comment_body"])
+            text = re.sub(regex_urls, " ", text)
+            # Thay thế ngắt dòng bằng dấu chấm và phẩy để AI đọc ngắt quãng giống người
+            text = text.replace("\n", ". ")
+            text = re.sub(r"\bAI\b", "A.I", text)
+            text = re.sub(r"\bAGI\b", "A.G.I", text)
+            if text and text[-1] not in [".", "!", "?", ";"]:
+                text += "."
+            text = text.replace(". . .", "...")
+            text = text.replace(".. . ", "...")
+            text = text.replace(". . ", ".")
+            text = re.sub(r'\."\.', '".', text)
+            return text
+
+        for comment in self.post_data["comments"]:
+            comment["comment_body"] = process_string(comment["comment_body"])
+            
+        self.post_data["thread_title"] = process_string(self.post_data.get("thread_title", ""))
 
     def run(self) -> Tuple[int, int]:
         Path(self.path).mkdir(parents=True, exist_ok=True)
